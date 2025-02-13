@@ -4,6 +4,8 @@ go 1.22.0
 
 toolchain go1.22.5
 
+replace github.com/attestantio/go-eth2-client v0.24.0 => github.com/Reactive-Network/go-eth2-client v0.24.1-0.20250213131011-16f60d603160
+
 require (
 	github.com/520MianXiangDuiXiang520/MapSize v0.0.0-20230414174449-030467540731
 	github.com/Masterminds/sprig/v3 v3.3.0
