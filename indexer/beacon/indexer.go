@@ -38,10 +38,12 @@ type Indexer struct {
 	maxParallelStateCalls uint16
 
 	// caches
-	blockCache     *blockCache
-	epochCache     *epochCache
-	forkCache      *forkCache
-	validatorCache *validatorCache
+	blockCache        *blockCache
+	epochCache        *epochCache
+	forkCache         *forkCache
+	pubkeyCache       *pubkeyCache
+	validatorCache    *validatorCache
+	validatorActivity *validatorActivityCache
 
 	// indexer state
 	clients               []*Client
@@ -63,6 +65,7 @@ type Indexer struct {
 	canonicalHead        *Block
 	canonicalComputation phase0.Root
 	cachedChainHeads     []*ChainHead
+	badChainRoots        []phase0.Root
 }
 
 // NewIndexer creates a new instance of the Indexer.
@@ -87,9 +90,8 @@ func NewIndexer(logger logrus.FieldLogger, consensusPool *consensus.Pool) *Index
 
 	// Create the indexer instance.
 	indexer := &Indexer{
-		logger:        logger,
-		consensusPool: consensusPool,
-
+		logger:                logger,
+		consensusPool:         consensusPool,
 		disableSync:           utils.Config.Indexer.DisableSynchronizer,
 		blockCompression:      blockCompression,
 		inMemoryEpochs:        inMemoryEpochs,
@@ -103,8 +105,17 @@ func NewIndexer(logger logrus.FieldLogger, consensusPool *consensus.Pool) *Index
 	indexer.blockCache = newBlockCache(indexer)
 	indexer.epochCache = newEpochCache(indexer)
 	indexer.forkCache = newForkCache(indexer)
+	indexer.pubkeyCache = newPubkeyCache(indexer, utils.Config.Indexer.PubkeyCachePath)
 	indexer.validatorCache = newValidatorCache(indexer)
+	indexer.validatorActivity = newValidatorActivityCache(indexer)
 	indexer.dbWriter = newDbWriter(indexer)
+
+	badChainRoots := utils.Config.Indexer.BadChainRoots
+	if len(badChainRoots) > 0 {
+		for _, root := range badChainRoots {
+			indexer.badChainRoots = append(indexer.badChainRoots, phase0.Root(utils.MustParseHex(root)))
+		}
+	}
 
 	return indexer
 }
@@ -238,9 +249,17 @@ func (indexer *Indexer) StartIndexer() {
 		indexer.logger.WithError(err).Errorf("failed loading fork state")
 	}
 
+	// restore finalized validator set from db
+	t1 := time.Now()
+	if validatorCount, err := indexer.validatorCache.prepopulateFromDB(); err != nil {
+		indexer.logger.WithError(err).Errorf("failed loading validator set")
+	} else {
+		indexer.logger.Infof("restored %v validators from DB (%.3f sec)", validatorCount, time.Since(t1).Seconds())
+	}
+
 	// restore unfinalized epoch stats from db
 	restoredEpochStats := 0
-	t1 := time.Now()
+	t1 = time.Now()
 	processingLimiter := make(chan bool, 10)
 	processingWaitGroup := sync.WaitGroup{}
 	err = db.StreamUnfinalizedDuties(uint64(finalizedEpoch), func(dbDuty *dbtypes.UnfinalizedDuty) {
@@ -258,7 +277,7 @@ func (indexer *Indexer) StartIndexer() {
 			epochStats := indexer.epochCache.createOrGetEpochStats(phase0.Epoch(dbDuty.Epoch), phase0.Root(dbDuty.DependentRoot), false)
 			pruneStats := dbDuty.Epoch < uint64(indexer.lastPrunedEpoch)
 
-			err := epochStats.restoreFromDb(dbDuty, indexer.dynSsz, chainState, !pruneStats)
+			err := epochStats.restoreFromDb(dbDuty, chainState, !pruneStats)
 			if err != nil {
 				indexer.logger.WithError(err).Errorf("failed restoring epoch stats for epoch %v (%x) from db", dbDuty.Epoch, dbDuty.DependentRoot)
 				return
@@ -394,6 +413,10 @@ func (indexer *Indexer) StartIndexer() {
 	}()
 }
 
+func (indexer *Indexer) StopIndexer() {
+	indexer.pubkeyCache.Close()
+}
+
 func (indexer *Indexer) runIndexerLoop() {
 	defer func() {
 		if err := recover(); err != nil {
@@ -432,6 +455,12 @@ func (indexer *Indexer) runIndexerLoop() {
 			indexer.lastPruneRunEpoch = chainState.CurrentEpoch()
 
 		case slotEvent := <-indexer.wallclockSubscription.Channel():
+			genesis := chainState.GetGenesis()
+			if time.Since(genesis.GenesisTime) < 0 {
+				// genesis time is in the future, skip
+				continue
+			}
+
 			epoch := chainState.EpochOfSlot(phase0.Slot(slotEvent.Number()))
 			slotIndex := chainState.SlotToSlotIndex(phase0.Slot(slotEvent.Number()))
 			slotProgress := uint8(100 / chainState.GetSpecs().SlotsPerEpoch * uint64(slotIndex))

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	v1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 )
 
@@ -119,6 +118,18 @@ func (indexer *Indexer) computeCanonicalChain() bool {
 			continue
 		}
 
+		isBadRoot := false
+		for _, badRoot := range indexer.badChainRoots {
+			if indexer.blockCache.isCanonicalBlock(badRoot, fork.Block.Root) {
+				isBadRoot = true
+				break
+			}
+		}
+
+		if isBadRoot {
+			continue
+		}
+
 		forkVotes, epochParticipation := indexer.aggregateForkVotes(fork.ForkId, aggregateEpochs)
 		headForkVotes[fork.ForkId] = forkVotes
 		chainHeads = append(chainHeads, &ChainHead{
@@ -153,11 +164,28 @@ func (indexer *Indexer) computeCanonicalChain() bool {
 
 	if headBlock == nil {
 		// just get latest block
-		latestBlocks := indexer.blockCache.getLatestBlocks(1, nil)
-		if len(latestBlocks) > 0 {
-			headBlock = latestBlocks[0]
+		latestBlocks := indexer.blockCache.getLatestBlocks(10, nil)
+		checkedForks := make(map[ForkKey]bool)
+		for _, block := range latestBlocks {
+			if checkedForks[block.forkId] {
+				continue
+			}
 
-			forkVotes, epochParticipation := indexer.aggregateForkVotes(headBlock.forkId, aggregateEpochs)
+			checkedForks[block.forkId] = true
+
+			isBadRoot := false
+			for _, badRoot := range indexer.badChainRoots {
+				if indexer.blockCache.isCanonicalBlock(badRoot, block.Root) {
+					isBadRoot = true
+					break
+				}
+			}
+
+			if isBadRoot {
+				continue
+			}
+
+			forkVotes, epochParticipation := indexer.aggregateForkVotes(block.forkId, aggregateEpochs)
 			participationStr := make([]string, len(epochParticipation))
 			for i, p := range epochParticipation {
 				participationStr[i] = fmt.Sprintf("%.2f%%", p)
@@ -165,16 +193,16 @@ func (indexer *Indexer) computeCanonicalChain() bool {
 
 			indexer.logger.Infof(
 				"fallback fork %v votes in last %v epochs: %v ETH (%v), head: %v (%v)",
-				headBlock.forkId,
+				block.forkId,
 				aggregateEpochs,
 				forkVotes/EtherGweiFactor,
 				strings.Join(participationStr, ", "),
-				headBlock.Slot,
-				headBlock.Root.String(),
+				block.Slot,
+				block.Root.String(),
 			)
 
 			chainHeads = []*ChainHead{{
-				HeadBlock:             headBlock,
+				HeadBlock:             block,
 				AggregatedHeadVotes:   forkVotes,
 				PerEpochVotingPercent: epochParticipation,
 			}}
@@ -201,6 +229,10 @@ func (indexer *Indexer) computeCanonicalChain() bool {
 
 		return int(headB.HeadBlock.Slot - headA.HeadBlock.Slot)
 	})
+
+	if headBlock == nil && len(chainHeads) > 0 {
+		headBlock = chainHeads[0].HeadBlock
+	}
 
 	return true
 }
@@ -330,155 +362,4 @@ func (indexer *Indexer) aggregateForkVotes(forkId ForkKey, epochLimit uint64) (t
 	}
 
 	return
-}
-
-// GetEpochValidatorSet returns the full validator set for a given epoch, including balances and validator status.
-// If an overrideForkId is provided, the validator set for the fork is returned.
-func (indexer *Indexer) GetEpochValidatorSet(epoch phase0.Epoch, overrideForkId *ForkKey, withBalances bool) []*v1.Validator {
-	var epochStats *EpochStats
-
-	if withBalances {
-		chainState := indexer.consensusPool.GetChainState()
-
-		canonicalHead := indexer.GetCanonicalHead(overrideForkId)
-		if canonicalHead == nil {
-			return []*v1.Validator{}
-		}
-
-		headEpoch := chainState.EpochOfSlot(canonicalHead.Slot)
-
-		for {
-			cEpoch := chainState.EpochOfSlot(canonicalHead.Slot)
-			if headEpoch-cEpoch > 2 {
-				return []*v1.Validator{}
-			}
-
-			dependentBlock := indexer.blockCache.getDependentBlock(chainState, canonicalHead, nil)
-			if dependentBlock == nil {
-				return []*v1.Validator{}
-			}
-			canonicalHead = dependentBlock
-
-			stats := indexer.epochCache.getEpochStats(cEpoch, dependentBlock.Root)
-			if cEpoch > 0 && (stats == nil || stats.dependentState == nil || stats.dependentState.loadingStatus != 2) {
-				continue // retry previous state
-			}
-
-			epochStats = stats
-
-			if cEpoch > 0 && stats.epoch > epoch {
-				continue
-			}
-
-			break
-		}
-	}
-
-	hasBalances := epochStats != nil && epochStats.dependentState != nil && epochStats.dependentState.loadingStatus == 2
-
-	var basicValidatorSet []*phase0.Validator
-	if hasBalances {
-		basicValidatorSet = indexer.validatorCache.getValidatorSetForRoot(epochStats.dependentRoot)
-	} else {
-		basicValidatorSet = indexer.validatorCache.getValidatorSet(overrideForkId)
-	}
-
-	validatorSet := make([]*v1.Validator, len(basicValidatorSet))
-	for index, validator := range basicValidatorSet {
-		var balance *phase0.Gwei
-		if hasBalances {
-			balance = &epochStats.dependentState.validatorBalances[index]
-		}
-
-		state := v1.ValidatorToState(validator, balance, epoch, FarFutureEpoch)
-
-		validatorData := &v1.Validator{
-			Index:     phase0.ValidatorIndex(index),
-			Status:    state,
-			Validator: basicValidatorSet[index],
-		}
-
-		if balance != nil {
-			validatorData.Balance = *balance
-		}
-
-		validatorSet[index] = validatorData
-	}
-
-	return validatorSet
-}
-
-// GetEpochValidator returns the full validator set for a given epoch, including balances and validator status.
-// If an overrideForkId is provided, the validator set for the fork is returned.
-func (indexer *Indexer) GetEpochValidator(validatorIndex phase0.ValidatorIndex, epoch phase0.Epoch, overrideForkId *ForkKey, withBalances bool) *v1.Validator {
-	var epochStats *EpochStats
-
-	if withBalances {
-		chainState := indexer.consensusPool.GetChainState()
-
-		canonicalHead := indexer.GetCanonicalHead(overrideForkId)
-		if canonicalHead == nil {
-			return nil
-		}
-
-		headEpoch := chainState.EpochOfSlot(canonicalHead.Slot)
-
-		for {
-			cEpoch := chainState.EpochOfSlot(canonicalHead.Slot)
-			if headEpoch-cEpoch > 2 {
-				return nil
-			}
-
-			dependentBlock := indexer.blockCache.getDependentBlock(chainState, canonicalHead, nil)
-			if dependentBlock == nil {
-				return nil
-			}
-			canonicalHead = dependentBlock
-
-			stats := indexer.epochCache.getEpochStats(cEpoch, dependentBlock.Root)
-			if cEpoch > 0 && (stats == nil || stats.dependentState == nil || stats.dependentState.loadingStatus != 2) {
-				continue // retry previous state
-			}
-
-			epochStats = stats
-
-			if cEpoch > 0 && stats.epoch > epoch {
-				continue
-			}
-
-			break
-		}
-	}
-
-	hasBalances := epochStats != nil && epochStats.dependentState != nil && epochStats.dependentState.loadingStatus == 2
-
-	var basicValidator *phase0.Validator
-	if hasBalances {
-		basicValidator = indexer.validatorCache.getValidatorByIndexAndRoot(validatorIndex, epochStats.dependentRoot)
-	} else {
-		basicValidator = indexer.validatorCache.getValidatorByIndex(validatorIndex, overrideForkId)
-	}
-
-	if basicValidator == nil {
-		return nil
-	}
-
-	var balance *phase0.Gwei
-	if hasBalances {
-		balance = &epochStats.dependentState.validatorBalances[validatorIndex]
-	}
-
-	state := v1.ValidatorToState(basicValidator, balance, epoch, FarFutureEpoch)
-
-	validatorData := &v1.Validator{
-		Index:     validatorIndex,
-		Status:    state,
-		Validator: basicValidator,
-	}
-
-	if balance != nil {
-		validatorData.Balance = *balance
-	}
-
-	return validatorData
 }

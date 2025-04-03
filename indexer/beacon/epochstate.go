@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 )
 
@@ -22,10 +23,14 @@ type epochState struct {
 	readyChan      chan bool
 	highPriority   bool
 
-	validatorBalances []phase0.Gwei
-	randaoMixes       []phase0.Root
-	depositIndex      uint64
-	syncCommittee     []phase0.ValidatorIndex
+	stateSlot                 phase0.Slot
+	validatorBalances         []phase0.Gwei
+	randaoMixes               []phase0.Root
+	depositIndex              uint64
+	syncCommittee             []phase0.ValidatorIndex
+	pendingDeposits           []*electra.PendingDeposit
+	pendingPartialWithdrawals []*electra.PendingPartialWithdrawal
+	pendingConsolidations     []*electra.PendingConsolidation
 }
 
 // newEpochState creates a new epochState instance with the root of the state to be loaded.
@@ -138,20 +143,20 @@ func (s *epochState) loadState(ctx context.Context, client *Client, cache *epoch
 // processState processes the state and updates the epochState instance.
 // the function extracts and unifies all relevant information from the beacon state, so the full beacon state can be dropped from memory afterwards.
 func (s *epochState) processState(state *spec.VersionedBeaconState, cache *epochCache) error {
+	slot, err := state.Slot()
+	if err != nil {
+		return fmt.Errorf("error getting slot from state %v: %v", s.slotRoot.String(), err)
+	}
+
+	s.stateSlot = slot
+
 	validatorList, err := state.Validators()
 	if err != nil {
 		return fmt.Errorf("error getting validators from state %v: %v", s.slotRoot.String(), err)
 	}
 
 	if cache != nil {
-		chainState := cache.indexer.consensusPool.GetChainState()
-		slot, err := state.Slot()
-		if err != nil {
-			return fmt.Errorf("error getting slot from state %v: %v", s.slotRoot.String(), err)
-		}
-
-		epoch := chainState.EpochOfSlot(slot)
-		cache.indexer.validatorCache.updateValidatorSet(epoch, s.slotRoot, validatorList)
+		cache.indexer.validatorCache.updateValidatorSet(slot, s.slotRoot, validatorList)
 	}
 
 	validatorPubkeyMap := make(map[phase0.BLSPubKey]phase0.ValidatorIndex)
@@ -190,6 +195,28 @@ func (s *epochState) processState(state *spec.VersionedBeaconState, cache *epoch
 		s.syncCommittee = syncCommittee
 	} else {
 		s.syncCommittee = []phase0.ValidatorIndex{}
+	}
+
+	if state.Version >= spec.DataVersionElectra {
+		pendingDeposits, err := getStatePendingDeposits(state)
+		if err != nil {
+			return fmt.Errorf("error getting pending deposit indices from state %v: %v", s.slotRoot.String(), err)
+		}
+		s.pendingDeposits = pendingDeposits
+
+		pendingPartialWithdrawals, err := getStatePendingWithdrawals(state)
+		if err != nil {
+			return fmt.Errorf("error getting pending withdrawal indices from state %v: %v", s.slotRoot.String(), err)
+		}
+		s.pendingPartialWithdrawals = pendingPartialWithdrawals
+
+		pendingConsolidations, err := getStatePendingConsolidations(state)
+		if err != nil {
+			return fmt.Errorf("error getting pending consolidation indices from state %v: %v", s.slotRoot.String(), err)
+		}
+
+		// apply epoch transition to get remaining pending consolidations
+		s.pendingConsolidations = pendingConsolidations
 	}
 
 	return nil
