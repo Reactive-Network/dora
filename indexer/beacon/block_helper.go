@@ -57,8 +57,8 @@ func MarshalVersionedSignedBeaconBlockSSZ(dynSsz *dynssz.DynSsz, block *spec.Ver
 	return
 }
 
-// unmarshalVersionedSignedBeaconBlockSSZ unmarshals a versioned signed beacon block using SSZ encoding.
-func unmarshalVersionedSignedBeaconBlockSSZ(dynSsz *dynssz.DynSsz, version uint64, ssz []byte) (*spec.VersionedSignedBeaconBlock, error) {
+// UnmarshalVersionedSignedBeaconBlockSSZ unmarshals a versioned signed beacon block using SSZ encoding.
+func UnmarshalVersionedSignedBeaconBlockSSZ(dynSsz *dynssz.DynSsz, version uint64, ssz []byte) (*spec.VersionedSignedBeaconBlock, error) {
 	if (version & compressionFlag) != 0 {
 		// decompress
 		if d, err := decompressBytes(ssz); err != nil {
@@ -323,6 +323,30 @@ func getStateCurrentSyncCommittee(v *spec.VersionedBeaconState) ([]phase0.BLSPub
 		return v.Electra.CurrentSyncCommittee.Pubkeys, nil
 	default:
 		return nil, errors.New("unknown version")
+	}
+}
+
+// getStateDepositBalanceToConsume returns the deposit balance to consume from a versioned beacon state.
+func getStateDepositBalanceToConsume(v *spec.VersionedBeaconState) (phase0.Gwei, error) {
+	switch v.Version {
+	case spec.DataVersionPhase0:
+		return 0, errors.New("no pending deposits in phase0")
+	case spec.DataVersionAltair:
+		return 0, errors.New("no pending deposits in altair")
+	case spec.DataVersionBellatrix:
+		return 0, errors.New("no pending deposits in bellatrix")
+	case spec.DataVersionCapella:
+		return 0, errors.New("no pending deposits in capella")
+	case spec.DataVersionDeneb:
+		return 0, errors.New("no pending deposits in deneb")
+	case spec.DataVersionElectra:
+		if v.Electra == nil {
+			return 0, errors.New("no electra block")
+		}
+
+		return v.Electra.DepositBalanceToConsume, nil
+	default:
+		return 0, errors.New("unknown version")
 	}
 }
 

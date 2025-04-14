@@ -191,7 +191,7 @@ func (indexer *Indexer) GetOrphanedBlockByRoot(blockRoot phase0.Root) (*Block, e
 		return nil, fmt.Errorf("failed unmarshal orphaned block header [%x] from db: %v", orphanedBlock.Root, err)
 	}
 
-	blockBody, err := unmarshalVersionedSignedBeaconBlockSSZ(indexer.dynSsz, orphanedBlock.BlockVer, orphanedBlock.BlockSSZ)
+	blockBody, err := UnmarshalVersionedSignedBeaconBlockSSZ(indexer.dynSsz, orphanedBlock.BlockVer, orphanedBlock.BlockSSZ)
 	if err != nil {
 		return nil, fmt.Errorf("could not restore orphaned block body %v [%x] from db: %v", header.Message.Slot, orphanedBlock.Root, err)
 	}
@@ -272,6 +272,10 @@ func (indexer *Indexer) GetEpochStats(epoch phase0.Epoch, overrideForkId *ForkKe
 	return bestEpochStats
 }
 
+func (indexer *Indexer) GetEpochStatsByBlockRoot(epoch phase0.Epoch, blockRoot phase0.Root) *EpochStats {
+	return indexer.epochCache.getEpochStatsByEpochAndRoot(epoch, blockRoot)
+}
+
 // GetLatestDepositQueue returns the latest deposit queue for the given epoch and optional fork ID override.
 func (indexer *Indexer) GetLatestDepositQueue(overrideForkId *ForkKey) []*electra.PendingDeposit {
 	canonicalHead := indexer.GetCanonicalHead(overrideForkId)
@@ -279,12 +283,18 @@ func (indexer *Indexer) GetLatestDepositQueue(overrideForkId *ForkKey) []*electr
 		return nil
 	}
 
-	epochState := indexer.epochCache.getLatestReadyEpochStateForBlockRoot(canonicalHead.Root)
+	_, _, _, queue := indexer.GetLatestDepositQueueByBlockRoot(canonicalHead.Root)
+	return queue
+}
+
+// GetLatestDepositQueueByBlockRoot returns the latest deposit queue for the given block root.
+func (indexer *Indexer) GetLatestDepositQueueByBlockRoot(blockRoot phase0.Root) (phase0.Root, phase0.Slot, phase0.Gwei, []*electra.PendingDeposit) {
+	epochState := indexer.epochCache.getLatestReadyEpochStateForBlockRoot(blockRoot)
 	if epochState == nil {
-		return nil
+		return phase0.Root{}, 0, 0, nil
 	}
 
-	return epochState.pendingDeposits
+	return epochState.slotRoot, epochState.stateSlot, epochState.depositBalanceToConsume, epochState.pendingDeposits
 }
 
 // GetParentForkIds returns the parent fork ids of the given fork.
