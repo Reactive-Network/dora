@@ -256,6 +256,31 @@ func createMenuItems(active string) []types.MainMenuItem {
 			IsActive: active == "clients",
 			Groups:   clientsMenu,
 		},
+		{
+			Label:    "Network",
+			IsActive: false,
+			Groups: []types.NavigationGroup{
+				{
+					Links: []types.NavigationLink{
+						{
+							Label: "Mainnet",
+							Path:  "https://dora.prq-infra.net/",
+							Icon:  "fa-hexagon-nodes",
+						},
+						{
+							Label: "Kopli",
+							Path:  "http://kopli-dora.kopli.svc.k8s.prq-infra.net:8080/",
+							Icon:  "fa-circle-nodes",
+						},
+						{
+							Label: "Devnet",
+							Path:  "http://dora-devnet.devnet.svc.k8s.prq-infra.net:8080/",
+							Icon:  "fa-code-commit",
+						},
+					},
+				},
+			},
+		},
 	}
 }
 
