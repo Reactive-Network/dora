@@ -32,7 +32,7 @@ func FormatETHFromGweiShort(gwei uint64) string {
 	return fmt.Sprintf("%.4f", float64(gwei)/math.Pow10(9))
 }
 
-func FormatFullETHFromGwei(gwei uint64) string {
+func FormatFullEthFromGwei(gwei uint64) string {
 	return fmt.Sprintf("%v ETH", uint64(float64(gwei)/math.Pow10(9)))
 }
 
@@ -415,4 +415,32 @@ func FormatWithdawalCredentials(hash []byte) template.HTML {
 	}
 
 	return formatWithdrawalHash(hash)
+}
+
+// FormatGweiValue formats a gas value in Gwei
+func FormatGweiValue(val uint64) string {
+	return FormatFloat(float64(val)/float64(1e9), 2) + " Gwei"
+}
+
+// CalculatePercentage calculates the percentage of a value from a total
+func CalculatePercentage(value uint64, total uint64) float64 {
+	if total == 0 {
+		return 0
+	}
+	return float64(value) * 100 / float64(total)
+}
+
+// FormatByteAmount converts a byte count to a human-readable string with appropriate unit (B, kB, MB, GB)
+func FormatByteAmount(bytes uint64) template.HTML {
+	const unit = 1024
+	if bytes < unit {
+		return template.HTML(fmt.Sprintf("%d B", bytes))
+	}
+	div, exp := uint64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	value := float64(bytes) / float64(div)
+	return template.HTML(fmt.Sprintf("%.2f %ciB", value, "kMGTPE"[exp]))
 }

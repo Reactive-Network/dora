@@ -42,12 +42,18 @@ type Slot struct {
 	ProposerSlashingCount uint64     `db:"proposer_slashing_count"`
 	BLSChangeCount        uint64     `db:"bls_change_count"`
 	EthTransactionCount   uint64     `db:"eth_transaction_count"`
+	BlobCount             uint64     `db:"blob_count"`
+	EthGasUsed            uint64     `db:"eth_gas_used"`
+	EthGasLimit           uint64     `db:"eth_gas_limit"`
+	EthBaseFee            uint64     `db:"eth_base_fee"`
+	EthFeeRecipient       []byte     `db:"eth_fee_recipient"`
 	EthBlockNumber        *uint64    `db:"eth_block_number"`
 	EthBlockHash          []byte     `db:"eth_block_hash"`
 	EthBlockExtra         []byte     `db:"eth_block_extra"`
 	EthBlockExtraText     string     `db:"eth_block_extra_text"`
 	SyncParticipation     float32    `db:"sync_participation"`
 	ForkId                uint64     `db:"fork_id"`
+	BlockSize             uint64     `db:"block_size"`
 }
 
 type Epoch struct {
@@ -69,6 +75,9 @@ type Epoch struct {
 	ProposerSlashingCount uint64  `db:"proposer_slashing_count"`
 	BLSChangeCount        uint64  `db:"bls_change_count"`
 	EthTransactionCount   uint64  `db:"eth_transaction_count"`
+	BlobCount             uint64  `db:"blob_count"`
+	EthGasUsed            uint64  `db:"eth_gas_used"`
+	EthGasLimit           uint64  `db:"eth_gas_limit"`
 	SyncParticipation     float32 `db:"sync_participation"`
 }
 
@@ -132,6 +141,9 @@ type UnfinalizedEpoch struct {
 	ProposerSlashingCount uint64  `db:"proposer_slashing_count"`
 	BLSChangeCount        uint64  `db:"bls_change_count"`
 	EthTransactionCount   uint64  `db:"eth_transaction_count"`
+	BlobCount             uint64  `db:"blob_count"`
+	EthGasUsed            uint64  `db:"eth_gas_used"`
+	EthGasLimit           uint64  `db:"eth_gas_limit"`
 	SyncParticipation     float32 `db:"sync_participation"`
 }
 
