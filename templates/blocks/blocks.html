@@ -166,7 +166,7 @@
                       {{ if $g.DisplayBlockSize }}<td>{{ if not (eq $slot.Status 0) }}{{ formatByteAmount $slot.BlockSize }}{{ end }}</td>{{ end }}
                       {{ if $g.DisplayRecvDelay }}<td>{{ if not (eq $slot.Status 0) }}{{ formatRecvDelay $slot.RecvDelay }}{{ end }}</td>{{ end }}
                       {{ if $g.DisplayGraffiti }}<td>{{ if not (eq $slot.Status 0) }}{{ formatGraffiti $slot.Graffiti }}{{ end }}</td>{{ end }}
-                      {{ if $g.DisplayElExtraData }}<td>{{ if not (eq $slot.Status 0) }}{{ formatGraffiti $slot.ElExtraData }}{{ end }}</td>{{ end }}
+                      {{ if $g.DisplayElExtraData }}<td>{{ if not (eq $slot.Status 0) }}{{ formatExtraData $slot.ElExtraData }}{{ end }}</td>{{ end }}
                     {{ else }}
                       {{ $colCount := 0 }}
                       {{ if $g.DisplayProposer }}{{ $colCount = add $colCount 1 }}{{ end }}

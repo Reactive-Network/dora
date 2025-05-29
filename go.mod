@@ -12,7 +12,7 @@ require (
 	github.com/attestantio/go-eth2-client v0.25.0
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/coocood/freecache v1.2.4
-	github.com/ethereum/go-ethereum v1.15.0
+	github.com/ethereum/go-ethereum v1.15.11
 	github.com/ethpandaops/ethwallclock v0.4.0
 	github.com/glebarez/go-sqlite v1.22.0
 	github.com/go-redis/redis/v8 v8.11.5

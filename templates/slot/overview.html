@@ -215,7 +215,7 @@
                 <div class="row py-1">
                   <div class="col-md-2"><span data-bs-toggle="tooltip" data-bs-placement="top" title="Block Extra Data">Block Extra Data</span></div>
                   <div class="col-md-10 text-monospace text-break d-flex justify-between flex-wrap">
-                    <div id="extra-data" class="mw-100" aria-hex-data="0x{{ printf "%x" .ExtraData }}" data-graffiti="{{ printf "%x" .ExtraData }}">{{ formatGraffiti .ExtraData }}</div>
+                    <div id="extra-data" class="mw-100" aria-hex-data="0x{{ printf "%x" .ExtraData }}" data-graffiti="{{ printf "%x" .ExtraData }}">{{ formatExtraData .ExtraData }}</div>
                     
                   </div>
                 </div>

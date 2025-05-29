@@ -13,11 +13,20 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethpandaops/dora/types"
 	"github.com/prysmaticlabs/go-bitfield"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
+
+type ReactAmberStatus struct {
+	RvmStateRoot    [32]byte
+	Miner           [20]byte
+	RvmTotalGasUsed uint64 // RVMs gas used
+	SeqNFrom        uint64
+	SeqNTo          uint64
+}
 
 func FormatETH(num string) string {
 	floatNum, _ := strconv.ParseFloat(num, 64)
@@ -402,6 +411,16 @@ func FormatRecentTimeShort(ts time.Time) template.HTML {
 
 func FormatGraffiti(graffiti []byte) template.HTML {
 	return template.HTML(fmt.Sprintf("<span class=\"graffiti-label\" data-graffiti=\"%#x\">%s</span>", graffiti, html.EscapeString(string(graffiti))))
+}
+
+func FormatExtraData(extraData []byte) template.HTML {
+	status := ReactAmberStatus{}
+	if err := rlp.DecodeBytes(extraData, &status); err != nil {
+		return template.HTML(fmt.Sprintf("<span class=\"text-danger\">%s</span>", html.EscapeString(err.Error())))
+	}
+	minerAddress := common.BytesToAddress(status.Miner[:]).String()
+	minerAddressShort := minerAddress[:5] + "…" + minerAddress[len(minerAddress)-4:]
+	return template.HTML(fmt.Sprintf("Seq: %d-%d (%d). RVM total gas used: %d. Miner: <span data-bs-toggle=\"tooltip\" data-bs-placement=\"top\" data-bs-title=\"%s\">%s</span>", status.SeqNFrom, status.SeqNTo, status.SeqNTo-status.SeqNFrom, status.RvmTotalGasUsed, minerAddress, minerAddressShort))
 }
 
 func formatWithdrawalHash(hash []byte) template.HTML {
