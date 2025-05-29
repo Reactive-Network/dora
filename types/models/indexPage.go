@@ -69,6 +69,7 @@ type IndexPageDataBlocks struct {
 	ProposerName string    `json:"proposer_name"`
 	Status       uint64    `json:"status"`
 	BlockRoot    []byte    `json:"block_root"`
+	SeqCount     string    `json:"seq_count"`
 }
 
 type IndexPageDataSlots struct {

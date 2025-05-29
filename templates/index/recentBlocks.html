@@ -17,6 +17,7 @@
               <th>Status</th>
               <th data-timecol="duration">Time</th>
               <th>Proposer</th>
+              <th>Sequences</th>
             </tr>
           </thead>
           <tbody class="template-tbody">
@@ -49,6 +50,7 @@
                 <span data-bs-toggle="tooltip" data-bs-placement="top" data-bind="attr: {'data-bs-title': $root.timestamp(ts)}, text: $root.formatRecentTimeShort(ts)"></span>
               </td>
               <td data-bind="html: $root.formatValidator(proposer, proposer_name)"></td>
+              <td data-bind="text: seq_count"></td>
             </tr>
             {{ html "<!-- /ko -->" }}
             {{ html "<!-- ko if: blocks().length == 0 -->" }}
@@ -83,6 +85,7 @@
                   </td>
                   <td data-timer="{{ $block.Ts.Unix }}"><span data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $block.Ts }}">{{ formatRecentTimeShort $block.Ts }}</span></td>
                   <td>{{ formatValidator $block.Proposer $block.ProposerName }}</td>
+                  <td>{{ $block.SeqCount }}</td>
                 </tr>
               {{ end }}
             {{ else }}

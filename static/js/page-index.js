@@ -4,7 +4,7 @@
     window.setInterval(scheduleLoop, 500);
   });
 
-  var refreshInterval = 15000;
+  var refreshInterval = 3500;
   var lastRefresh = new Date().getTime();
   var loopTimer = null;
   var isRefreshing = false;

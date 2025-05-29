@@ -110,9 +110,9 @@ func buildBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns strin
 			13: true,
 			14: true,
 			15: true,
-			16: true,
+			16: false,
 			17: true,
-			18: false,
+			18: true,
 		}
 	} else {
 		for col := range displayMap {

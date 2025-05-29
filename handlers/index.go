@@ -12,6 +12,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethpandaops/dora/db"
 	"github.com/ethpandaops/dora/dbtypes"
 	"github.com/ethpandaops/dora/services"
@@ -20,6 +21,14 @@ import (
 	"github.com/ethpandaops/dora/utils"
 	"github.com/sirupsen/logrus"
 )
+
+type ReactAmberStatus struct {
+	RvmStateRoot    [32]byte
+	Miner           [20]byte
+	RvmTotalGasUsed uint64 // RVMs gas used
+	SeqNFrom        uint64
+	SeqNTo          uint64
+}
 
 // Index will return the main "index" page using a go template
 func Index(w http.ResponseWriter, r *http.Request) {
@@ -309,6 +318,7 @@ func buildIndexPageRecentBlocksData(pageData *models.IndexPageData, recentBlockC
 			ProposerName: services.GlobalBeaconService.GetValidatorName(blockData.Proposer),
 			Status:       uint64(blockData.Status),
 			BlockRoot:    blockData.Root,
+			SeqCount:     "N/A",
 		}
 		if blockData.EthBlockNumber != nil {
 			blockModel.WithEthBlock = true
@@ -316,6 +326,12 @@ func buildIndexPageRecentBlocksData(pageData *models.IndexPageData, recentBlockC
 			if utils.Config.Frontend.EthExplorerLink != "" {
 				blockModel.EthBlockLink, _ = url.JoinPath(utils.Config.Frontend.EthExplorerLink, "block", strconv.FormatUint(blockModel.EthBlock, 10))
 			}
+		}
+		status := ReactAmberStatus{}
+		if err := rlp.DecodeBytes(blockData.EthBlockExtra, &status); err != nil {
+			blockModel.SeqCount = err.Error()
+		} else {
+			blockModel.SeqCount = fmt.Sprintf("%d", status.SeqNTo-status.SeqNFrom)
 		}
 		pageData.RecentBlocks = append(pageData.RecentBlocks, blockModel)
 	}
