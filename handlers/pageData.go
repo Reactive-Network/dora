@@ -278,6 +278,11 @@ func createMenuItems(active string) []types.MainMenuItem {
 							Icon:  "fa-circle-nodes",
 						},
 						{
+							Label: "Lasna",
+							Path:  "http://lasna-dora.lasna.svc.k8s.prq-infra.net:8080/",
+							Icon:  "fa-circle-nodes",
+						},
+						{
 							Label: "Devnet",
 							Path:  "http://dora-devnet.devnet.svc.k8s.prq-infra.net:8080/",
 							Icon:  "fa-code-commit",
