@@ -274,17 +274,17 @@ func createMenuItems(active string) []types.MainMenuItem {
 						},
 						{
 							Label: "Kopli",
-							Path:  "http://kopli-dora.kopli.svc.k8s.prq-infra.net:8080/",
+							Path:  "http://kopli-dora.prq-infra.net/",
 							Icon:  "fa-circle-nodes",
 						},
 						{
 							Label: "Lasna",
-							Path:  "http://lasna-dora.lasna.svc.k8s.prq-infra.net:8080/",
+							Path:  "http://lasna-dora.prq-infra.net/",
 							Icon:  "fa-circle-nodes",
 						},
 						{
 							Label: "Devnet",
-							Path:  "http://dora-devnet.devnet.svc.k8s.prq-infra.net:8080/",
+							Path:  "http://devnet-dora.prq-infra.net/",
 							Icon:  "fa-code-commit",
 						},
 					},
