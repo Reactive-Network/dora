@@ -26,6 +26,7 @@ type ReactAmberStatus struct {
 	RvmTotalGasUsed uint64 // RVMs gas used
 	SeqNFrom        uint64
 	SeqNTo          uint64
+	FiltersHash     [32]byte
 }
 
 func FormatETH(num string) string {
@@ -420,7 +421,9 @@ func FormatExtraData(extraData []byte) template.HTML {
 	}
 	minerAddress := common.BytesToAddress(status.Miner[:]).String()
 	minerAddressShort := minerAddress[:5] + "…" + minerAddress[len(minerAddress)-4:]
-	return template.HTML(fmt.Sprintf("Seq: %d-%d (%d). RVM total gas used: %d. Miner: <span data-bs-toggle=\"tooltip\" data-bs-placement=\"top\" data-bs-title=\"%s\">%s</span>", status.SeqNFrom, status.SeqNTo, status.SeqNTo-status.SeqNFrom, status.RvmTotalGasUsed, minerAddress, minerAddressShort))
+	filtersHash := common.BytesToHash(status.FiltersHash[:]).String()
+	filtersHashShort := filtersHash[:5] + "…" + filtersHash[len(filtersHash)-4:]
+	return template.HTML(fmt.Sprintf("Seq: %d-%d (%d). RVM total gas used: %d. Miner: <span data-bs-toggle=\"tooltip\" data-bs-placement=\"top\" data-bs-title=\"%s\">%s</span>. Filter state: <span data-bs-toggle=\"tooltip\" data-bs-placement=\"top\" data-bs-title=\"%s\">%s</span>", status.SeqNFrom, status.SeqNTo, status.SeqNTo-status.SeqNFrom, status.RvmTotalGasUsed, minerAddress, minerAddressShort, filtersHash, filtersHashShort))
 }
 
 func formatWithdrawalHash(hash []byte) template.HTML {

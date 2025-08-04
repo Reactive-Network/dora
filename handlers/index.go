@@ -28,6 +28,7 @@ type ReactAmberStatus struct {
 	RvmTotalGasUsed uint64 // RVMs gas used
 	SeqNFrom        uint64
 	SeqNTo          uint64
+	FiltersHash     [32]byte
 }
 
 // Index will return the main "index" page using a go template
