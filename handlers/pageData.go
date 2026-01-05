@@ -297,11 +297,6 @@ func createMenuItems(active string) []types.MainMenuItem {
 							Icon:  "fa-hexagon-nodes",
 						},
 						{
-							Label: "Kopli",
-							Path:  "http://kopli-dora.prq-infra.net/",
-							Icon:  "fa-circle-nodes",
-						},
-						{
 							Label: "Lasna",
 							Path:  "http://lasna-dora.prq-infra.net/",
 							Icon:  "fa-circle-nodes",
