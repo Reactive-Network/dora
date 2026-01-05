@@ -2,7 +2,7 @@ module github.com/ethpandaops/dora
 
 go 1.25.1
 
-replace github.com/attestantio/go-eth2-client v0.25.0 => github.com/Reactive-Network/go-eth2-client v0.24.1-0.20250428101426-d121c424a70b
+replace github.com/attestantio/go-eth2-client v0.28.0 => github.com/Reactive-Network/go-eth2-client v0.28.0
 
 require (
 	github.com/520MianXiangDuiXiang520/MapSize v0.0.0-20230414174449-030467540731
