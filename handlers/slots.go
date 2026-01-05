@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethpandaops/dora/db"
 	"github.com/ethpandaops/dora/dbtypes"
+	"github.com/ethpandaops/dora/indexer/beacon"
 	"github.com/ethpandaops/dora/services"
 	"github.com/ethpandaops/dora/templates"
 	"github.com/ethpandaops/dora/types/models"
@@ -39,9 +39,9 @@ func Slots(w http.ResponseWriter, r *http.Request) {
 	if urlArgs.Has("s") {
 		firstSlot, _ = strconv.ParseUint(urlArgs.Get("s"), 10, 64)
 	}
-	var displayColumns string = ""
+	var displayColumns uint64 = 0
 	if urlArgs.Has("d") {
-		displayColumns = urlArgs.Get("d")
+		displayColumns = utils.DecodeUint64BitfieldFromQuery(r.URL.RawQuery, "d")
 	}
 
 	var pageError error
@@ -59,7 +59,7 @@ func Slots(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getSlotsPageData(firstSlot uint64, pageSize uint64, displayColumns string) (*models.SlotsPageData, error) {
+func getSlotsPageData(firstSlot uint64, pageSize uint64, displayColumns uint64) (*models.SlotsPageData, error) {
 	pageData := &models.SlotsPageData{}
 	pageCacheKey := fmt.Sprintf("slots:%v:%v:%v", firstSlot, pageSize, displayColumns)
 	pageRes, pageErr := services.GlobalFrontendCache.ProcessCachedPage(pageCacheKey, true, pageData, func(pageCall *services.FrontendCacheProcessingPage) interface{} {
@@ -77,23 +77,26 @@ func getSlotsPageData(firstSlot uint64, pageSize uint64, displayColumns string) 
 	return pageData, pageErr
 }
 
-func buildSlotsPageData(firstSlot uint64, pageSize uint64, displayColumns string) (*models.SlotsPageData, time.Duration) {
+func buildSlotsPageData(firstSlot uint64, pageSize uint64, displayColumns uint64) (*models.SlotsPageData, time.Duration) {
 	logrus.Debugf("slots page called: %v:%v", firstSlot, pageSize)
 	pageData := &models.SlotsPageData{}
 
 	// Set display columns based on the parameter
 	displayMap := map[uint64]bool{}
-	displayList := []string{}
-	if displayColumns != "" {
-		for _, col := range strings.Split(displayColumns, " ") {
-			colNum, err := strconv.ParseUint(col, 10, 64)
-			if err != nil {
-				continue
+	if displayColumns != 0 {
+		for i := 0; i < 64; i++ {
+			if displayColumns&(1<<i) != 0 {
+				displayMap[uint64(i+1)] = true
 			}
-			displayMap[colNum] = true
 		}
 	}
 	if len(displayMap) == 0 {
+		// Check if snooper clients are configured
+		hasSnooperClients := false
+		if snooperManager := services.GlobalBeaconService.GetSnooperManager(); snooperManager != nil {
+			hasSnooperClients = snooperManager.HasClients()
+		}
+
 		displayMap = map[uint64]bool{
 			1:  true,
 			2:  true,
@@ -112,12 +115,21 @@ func buildSlotsPageData(firstSlot uint64, pageSize uint64, displayColumns string
 			15: false,
 			16: false,
 			17: false,
-			18: true,
+			18: !hasSnooperClients, // Disable receive delay if snooper clients exist
+			19: hasSnooperClients,  // Enable exec time if snooper clients exist
 		}
-	} else {
-		for col := range displayMap {
-			displayList = append(displayList, fmt.Sprintf("%v", col))
+	}
+
+	displayMask := uint64(0)
+	for col := range displayMap {
+		if col == 0 || col > 64 {
+			continue
 		}
+		displayMask |= 1 << (col - 1)
+	}
+	displayColumnsParam := ""
+	if displayMask != 0 {
+		displayColumnsParam = fmt.Sprintf("&d=0x%x", displayMask)
 	}
 
 	pageData.DisplayChain = displayMap[1]
@@ -138,18 +150,8 @@ func buildSlotsPageData(firstSlot uint64, pageSize uint64, displayColumns string
 	pageData.DisplayMevBlock = displayMap[16]
 	pageData.DisplayBlockSize = displayMap[17]
 	pageData.DisplayRecvDelay = displayMap[18]
+	pageData.DisplayExecTime = displayMap[19]
 	pageData.DisplayColCount = uint64(len(displayMap))
-
-	// Build column selection URL parameter if not default
-	displayColumnsParam := ""
-	if len(displayList) > 0 {
-		sort.Slice(displayList, func(a, b int) bool {
-			colA, _ := strconv.ParseUint(displayList[a], 10, 64)
-			colB, _ := strconv.ParseUint(displayList[b], 10, 64)
-			return colA < colB
-		})
-		displayColumnsParam = "&d=" + strings.Join(displayList, "+")
-	}
 
 	chainState := services.GlobalBeaconService.GetChainState()
 	currentSlot := chainState.CurrentSlot()
@@ -185,6 +187,14 @@ func buildSlotsPageData(firstSlot uint64, pageSize uint64, displayColumns string
 		pageData.NextPageSlot = pageData.CurrentPageSlot - pageSize
 	}
 	pageData.LastPageSlot = pageSize - 1
+
+	// Populate UrlParams for page jump functionality
+	pageData.UrlParams = make(map[string]string)
+	pageData.UrlParams["c"] = fmt.Sprintf("%v", pageData.PageSize)
+	if displayMask != 0 {
+		pageData.UrlParams["d"] = fmt.Sprintf("0x%x", displayMask)
+	}
+	pageData.MaxSlot = uint64(maxSlot)
 
 	// Add pagination links with column selection preserved
 	pageData.FirstPageLink = fmt.Sprintf("/slots?c=%v%v", pageData.PageSize, displayColumnsParam)
@@ -288,6 +298,44 @@ func buildSlotsPageData(firstSlot uint64, pageSize uint64, displayColumns string
 						}
 					}
 					slotData.MevBlockRelays = strings.Join(relays, ", ")
+				}
+			}
+
+			// Add execution times if available
+			if pageData.DisplayExecTime && dbSlot.MinExecTime > 0 && dbSlot.MaxExecTime > 0 {
+				slotData.MinExecTime = dbSlot.MinExecTime
+				slotData.MaxExecTime = dbSlot.MaxExecTime
+
+				// Deserialize execution times if available
+				if len(dbSlot.ExecTimes) > 0 {
+					execTimes := []beacon.ExecutionTime{}
+					if err := services.GlobalBeaconService.GetBeaconIndexer().GetDynSSZ().UnmarshalSSZ(&execTimes, dbSlot.ExecTimes); err == nil {
+						slotData.ExecutionTimes = make([]models.ExecutionTimeDetail, 0, len(execTimes))
+						totalAvg := uint64(0)
+						totalCount := uint64(0)
+
+						for _, et := range execTimes {
+							detail := models.ExecutionTimeDetail{
+								ClientType: getClientTypeName(et.ClientType),
+								MinTime:    et.MinTime,
+								MaxTime:    et.MaxTime,
+								AvgTime:    et.AvgTime,
+								Count:      et.Count,
+							}
+							slotData.ExecutionTimes = append(slotData.ExecutionTimes, detail)
+							totalAvg += uint64(et.AvgTime) * uint64(et.Count)
+							totalCount += uint64(et.Count)
+						}
+
+						if totalCount > 0 {
+							slotData.AvgExecTime = uint32(totalAvg / totalCount)
+						}
+					}
+				}
+
+				// If we don't have detailed times, calculate average from min/max
+				if slotData.AvgExecTime == 0 {
+					slotData.AvgExecTime = (slotData.MinExecTime + slotData.MaxExecTime) / 2
 				}
 			}
 

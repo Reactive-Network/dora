@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/ethpandaops/dora/clients/execution"
 	"github.com/ethpandaops/dora/db"
 	"github.com/ethpandaops/dora/dbtypes"
+	"github.com/ethpandaops/dora/indexer/beacon"
 	"github.com/ethpandaops/dora/services"
 	"github.com/ethpandaops/dora/templates"
 	"github.com/ethpandaops/dora/types/models"
@@ -39,9 +40,9 @@ func Blocks(w http.ResponseWriter, r *http.Request) {
 	if urlArgs.Has("s") {
 		firstSlot, _ = strconv.ParseUint(urlArgs.Get("s"), 10, 64)
 	}
-	var displayColumns string = ""
+	var displayColumns uint64 = 0
 	if urlArgs.Has("d") {
-		displayColumns = urlArgs.Get("d")
+		displayColumns = utils.DecodeUint64BitfieldFromQuery(r.URL.RawQuery, "d")
 	}
 
 	var pageError error
@@ -59,7 +60,7 @@ func Blocks(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns string) (*models.BlocksPageData, error) {
+func getBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns uint64) (*models.BlocksPageData, error) {
 	pageData := &models.BlocksPageData{}
 	pageCacheKey := fmt.Sprintf("blocks:%v:%v:%v", firstSlot, pageSize, displayColumns)
 	pageRes, pageErr := services.GlobalFrontendCache.ProcessCachedPage(pageCacheKey, true, pageData, func(pageCall *services.FrontendCacheProcessingPage) interface{} {
@@ -77,20 +78,17 @@ func getBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns string)
 	return pageData, pageErr
 }
 
-func buildBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns string) (*models.BlocksPageData, time.Duration) {
+func buildBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns uint64) (*models.BlocksPageData, time.Duration) {
 	logrus.Debugf("blocks page called: %v:%v", firstSlot, pageSize)
 	pageData := &models.BlocksPageData{}
 
 	// Set display columns based on the parameter
 	displayMap := map[uint64]bool{}
-	displayList := []string{}
-	if displayColumns != "" {
-		for _, col := range strings.Split(displayColumns, " ") {
-			colNum, err := strconv.ParseUint(col, 10, 64)
-			if err != nil {
-				continue
+	if displayColumns != 0 {
+		for i := 0; i < 64; i++ {
+			if displayColumns&(1<<i) != 0 {
+				displayMap[uint64(i+1)] = true
 			}
-			displayMap[colNum] = true
 		}
 	}
 	if len(displayMap) == 0 {
@@ -113,11 +111,20 @@ func buildBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns strin
 			16: false,
 			17: true,
 			18: true,
+			19: false,
 		}
-	} else {
-		for col := range displayMap {
-			displayList = append(displayList, fmt.Sprintf("%v", col))
+	}
+
+	displayMask := uint64(0)
+	for col := range displayMap {
+		if col == 0 || col > 64 {
+			continue
 		}
+		displayMask |= 1 << (col - 1)
+	}
+	displayColumnsParam := ""
+	if displayMask != 0 {
+		displayColumnsParam = fmt.Sprintf("&d=0x%x", displayMask)
 	}
 
 	pageData.DisplayChain = displayMap[1]
@@ -138,18 +145,8 @@ func buildBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns strin
 	pageData.DisplayMevBlock = displayMap[16]
 	pageData.DisplayBlockSize = displayMap[17]
 	pageData.DisplayRecvDelay = displayMap[18]
+	pageData.DisplayExecTime = displayMap[19]
 	pageData.DisplayColCount = uint64(len(displayMap))
-
-	// Build column selection URL parameter if not default
-	displayColumnsParam := ""
-	if len(displayList) > 0 {
-		sort.Slice(displayList, func(a, b int) bool {
-			colA, _ := strconv.ParseUint(displayList[a], 10, 64)
-			colB, _ := strconv.ParseUint(displayList[b], 10, 64)
-			return colA < colB
-		})
-		displayColumnsParam = "&d=" + strings.Join(displayList, "+")
-	}
 
 	chainState := services.GlobalBeaconService.GetChainState()
 	currentSlot := chainState.CurrentSlot()
@@ -185,6 +182,14 @@ func buildBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns strin
 		pageData.NextPageSlot = pageData.CurrentPageSlot - pageSize
 	}
 	pageData.LastPageSlot = pageSize - 1
+
+	// Populate UrlParams for page jump functionality
+	pageData.UrlParams = make(map[string]string)
+	pageData.UrlParams["c"] = fmt.Sprintf("%v", pageData.PageSize)
+	if displayMask != 0 {
+		pageData.UrlParams["d"] = fmt.Sprintf("0x%x", displayMask)
+	}
+	pageData.MaxSlot = uint64(maxSlot)
 
 	// Add pagination links with column selection preserved
 	pageData.FirstPageLink = fmt.Sprintf("/blocks?c=%v%v", pageData.PageSize, displayColumnsParam)
@@ -291,6 +296,44 @@ func buildBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns strin
 				}
 			}
 
+			// Add execution times if available
+			if pageData.DisplayExecTime && dbSlot.MinExecTime > 0 && dbSlot.MaxExecTime > 0 {
+				slotData.MinExecTime = dbSlot.MinExecTime
+				slotData.MaxExecTime = dbSlot.MaxExecTime
+
+				// Deserialize execution times if available
+				if len(dbSlot.ExecTimes) > 0 {
+					execTimes := []beacon.ExecutionTime{}
+					if err := services.GlobalBeaconService.GetBeaconIndexer().GetDynSSZ().UnmarshalSSZ(&execTimes, dbSlot.ExecTimes); err == nil {
+						slotData.ExecutionTimes = make([]models.ExecutionTimeDetail, 0, len(execTimes))
+						totalAvg := uint64(0)
+						totalCount := uint64(0)
+
+						for _, et := range execTimes {
+							detail := models.ExecutionTimeDetail{
+								ClientType: getClientTypeName(et.ClientType),
+								MinTime:    et.MinTime,
+								MaxTime:    et.MaxTime,
+								AvgTime:    et.AvgTime,
+								Count:      et.Count,
+							}
+							slotData.ExecutionTimes = append(slotData.ExecutionTimes, detail)
+							totalAvg += uint64(et.AvgTime) * uint64(et.Count)
+							totalCount += uint64(et.Count)
+						}
+
+						if totalCount > 0 {
+							slotData.AvgExecTime = uint32(totalAvg / totalCount)
+						}
+					}
+				}
+
+				// If we don't have detailed times, calculate average from min/max
+				if slotData.AvgExecTime == 0 {
+					slotData.AvgExecTime = (slotData.MinExecTime + slotData.MaxExecTime) / 2
+				}
+			}
+
 			pageData.Blocks = append(pageData.Blocks, slotData)
 			blockCount++
 			buildBlocksPageSlotGraph(pageData, slotData, &maxOpenFork, openForks, isFirstPage)
@@ -313,6 +356,14 @@ func buildBlocksPageData(firstSlot uint64, pageSize uint64, displayColumns strin
 		cacheTimeout = 12 * time.Second
 	}
 	return pageData, cacheTimeout
+}
+
+func getClientTypeName(clientType uint8) string {
+	if clientType > 0 {
+		return execution.ClientType(clientType).String()
+	}
+
+	return fmt.Sprintf("Unknown(%d)", clientType)
 }
 
 func buildBlocksPageSlotGraph(pageData *models.BlocksPageData, slotData *models.BlocksPageDataSlot, maxOpenFork *int, openForks map[int][]byte, isFirstPage bool) {

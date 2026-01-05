@@ -84,17 +84,26 @@ func (client *Client) checkClient() error {
 		return fmt.Errorf("error while fetching specs: %v", err)
 	}
 
-	warning, err := client.pool.chainState.setClientSpecs(specs)
+	err = client.pool.chainState.updateClientSpecs(client, specs)
+	client.specs = specs
+
 	if err != nil {
+		client.hasBadSpecs = true
 		return fmt.Errorf("invalid chain specs: %v", err)
 	}
 
-	if warning != nil {
-		client.logger.Warnf("incomplete chain specs: %v", warning)
+	// Log warnings if any were set by updateClientSpecs
+	if len(client.specWarnings) > 0 {
+		for _, warning := range client.specWarnings {
+			client.logger.Warnf("chain spec issue: %v", warning)
+		}
 	}
 
 	// init wallclock
 	client.pool.chainState.initWallclock()
+
+	// set metadata refresh epoch
+	client.lastMetadataUpdateEpoch = client.pool.chainState.CurrentEpoch()
 
 	// check synchronization state
 	err = client.updateSynchronizationStatus(ctx)
@@ -214,8 +223,8 @@ func (client *Client) runClientLogic() error {
 			}()
 		}
 
-		if time.Since(client.lastMetadataUpdate) >= 5*time.Minute {
-			client.lastMetadataUpdate = time.Now()
+		if (currentEpoch-client.lastFinalityUpdateEpoch >= 1 && client.pool.chainState.SlotToSlotIndex(currentSlot) >= 1) || time.Since(client.lastMetadataUpdateTime) > 10*time.Minute {
+			client.lastFinalityUpdateEpoch = currentEpoch
 			go func() {
 				// update node peers
 				if err = client.updateNodeMetadata(client.clientCtx); err != nil {
@@ -254,7 +263,7 @@ func (client *Client) updateNodeMetadata(ctx context.Context) error {
 	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	client.lastMetadataUpdate = time.Now()
+	client.lastMetadataUpdateTime = time.Now()
 
 	// get node version
 	nodeVersion, err := client.rpcClient.GetNodeVersion(ctx)
@@ -279,6 +288,12 @@ func (client *Client) updateNodeMetadata(ctx context.Context) error {
 	client.peers = peers
 
 	return nil
+}
+
+// ForceUpdateNodeMetadata forces an immediate update of node metadata including ENRs,
+// bypassing the normal epoch-based update schedule
+func (client *Client) ForceUpdateNodeMetadata(ctx context.Context) error {
+	return client.updateNodeMetadata(ctx)
 }
 
 func (client *Client) updateFinalityCheckpoints(ctx context.Context) (phase0.Root, error) {

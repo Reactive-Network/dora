@@ -58,6 +58,43 @@ func FormatFloat(num float64, precision int) string {
 	return string(r)
 }
 
+func FormatBaseFee(weiValue uint64) template.HTML {
+	// Convert wei to gwei (1 gwei = 1e9 wei)
+	gweiValue := float64(weiValue) / 1e9
+
+	// If less than 100,000 wei, show in wei
+	if weiValue < 100000 {
+		return template.HTML(string(FormatAddCommas(weiValue)) + " wei")
+	}
+
+	// If less than 100,000 gwei, show in gwei with 6 decimals, trimmed
+	if gweiValue < 100000 {
+		formatted := strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", gweiValue), "0"), ".")
+		return template.HTML(formatted + " gwei")
+	}
+
+	// Show in ETH for very large values with 6 decimals, trimmed
+	ethValue := gweiValue / 1e9
+	formatted := strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", ethValue), "0"), ".")
+	return template.HTML(formatted + " ETH")
+}
+
+func FormatBlobFeeDifference(eip7918Value, originalValue uint64) template.HTML {
+	// Calculate the difference
+	difference := eip7918Value - originalValue
+
+	// Use the same formatting logic as FormatBaseFee for consistency
+	return FormatBaseFee(difference)
+}
+
+func FormatTransactionValue(ethValue float64) template.HTML {
+	// Convert ETH value to wei (1 ETH = 1e18 wei)
+	weiValue := uint64(ethValue * 1e18)
+
+	// Use the same formatting logic as FormatBaseFee
+	return FormatBaseFee(weiValue)
+}
+
 func formatPercentageAlert(num float64, precision int, warnBelow float64, errBelow float64) template.HTML {
 	p := message.NewPrinter(language.English)
 	f := fmt.Sprintf("%%.%vf", precision)
@@ -487,4 +524,15 @@ func FormatRecvDelay(delay int32) template.HTML {
 		return template.HTML("-")
 	}
 	return template.HTML(fmt.Sprintf("%.2f s", float64(delay)/1000))
+}
+
+func formatAlertNumber(displayText string, value float64, yellowThreshold float64, redThreshold float64) template.HTML {
+	switch {
+	case value >= redThreshold:
+		return template.HTML(fmt.Sprintf("<span class=\"text-danger\">%s</span>", displayText))
+	case value >= yellowThreshold:
+		return template.HTML(fmt.Sprintf("<span class=\"text-warning\">%s</span>", displayText))
+	default:
+		return template.HTML(displayText)
+	}
 }
